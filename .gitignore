@@ -1,4 +1,4 @@
-# Python
+# Python bytecode and packaging
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,7 +7,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib64/
@@ -19,20 +18,25 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+__pypackages__/
 
-# Virtual Environment
+# Virtual environments
 venv/
 ENV/
 env/
 .venv
+.venv*/
+.tox/
+.nox/
 
-# IDE
+# IDE and local editor state
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+.fleet/
 
 # PyInstaller
 *.manifest
@@ -40,66 +44,241 @@ env/
 
 # Testing
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
-.tox/
-.nox/
+test-results/
+junit*.xml
 
-# Logs
+# Logs and crash dumps
 *.log
 logs/
 data/logs/
+runtime/logs/
+*.trace
+*.dmp
+*.mdmp
 
-# Database
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+*.local.*
+*.secret
+*.secrets
+secrets/
+.secrets/
+config/*.local.json
+config/*.local.toml
+config/*.local.yaml
+config/*.local.yml
+config/local*.json
+config/secrets*.json
+credentials/
+api_keys/
+tokens/
+data/credentials/
+data/tokens/
+*.apikey
+*.token
+*.credentials
+oauth*.json
+token*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases and app state
 *.db
+*.db-*
+*.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
+*.sqlite-*
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 *.sqlite3
+*.sqlite3-*
 data/database/*.db
+data/database/*.db-*
 !data/database/.gitkeep
+data/state/
+data/sessions/
+data/tmp/
 
 # Cache
 *.cache
 data/cache/
 !data/cache/.gitkeep
+runtime/cache/
+runtime/tmp/
+.ipynb_checkpoints/
 
-# AI Models (too large for git, users download in app)
+# User sound libraries and imported media.
+# Real audio/video files are usually large, private, or licensed. Keep tiny test
+# fixtures under tests/fixtures/ only when they are safe to redistribute.
+*.wav
+*.wave
+*.mp3
+*.flac
+*.aif
+*.aiff
+*.ogg
+*.oga
+*.opus
+*.m4a
+*.aac
+*.wma
+*.caf
+*.mid
+*.midi
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.mxf
+*.bwf
+!tests/fixtures/**/*.wav
+!tests/fixtures/**/*.mp3
+!tests/fixtures/**/*.flac
+!tests/fixtures/**/*.ogg
+library/
+libraries/
+sound-library/
+sound_libraries/
+audio-library/
+audio_libraries/
+samples/
+recordings/
+imports/
+downloads/
+exports/
+outputs/
+generated/
+generated_audio/
+generated-sounds/
+ai-generated/
+data/audio/
+data/imports/
+data/downloads/
+data/exports/
+data/generated/
+data/generated_audio/
+data/ai_generated/
+data/projects/
+!data/projects/.gitkeep
+
+# Unity export output. Keep Unity projects outside this repository; only commit
+# exporter code, templates, and documentation here.
+*.unitypackage
+unity_exports/
+unity-export/
+unity_export/
+data/unity_exports/
+data/unity-export/
+exports/unity/
+exports/unity/**/*.meta
+data/exports/unity/
+data/exports/unity/**/*.meta
+
+# AI models and generated embeddings (too large for git; users download/build in app)
 data/models/**/*.onnx
 data/models/**/*.pt
 data/models/**/*.pth
 data/models/**/*.bin
 data/models/**/*.safetensors
+data/models/**/*.ckpt
+data/models/**/*.gguf
+data/models/**/*.tflite
 models/musicgen/*.onnx
+models/**/*.pt
+models/**/*.pth
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.ckpt
+models/**/*.gguf
+models/**/*.tflite
 !data/models/.gitkeep
 !models/musicgen/.gitkeep
 
-# Index files
-data/index/
+# Search, CLAP, waveform, and analysis indexes
+data/index/*
 !data/index/.gitkeep
+data/fingerprints/
+data/dedupe/
+data/duplicates/
+*.faiss
+*.ann
+*.hnsw
+*.npy
+*.npz
+*.pkl
+*.joblib
+*.fingerprint
+*.fingerprints
+!tests/fixtures/**/*.npy
+!tests/fixtures/**/*.npz
 
-# Backups
+# Backups and generated reports
 data/backups/
 *.bak
 *.backup
+*.orig
+*.rej
+docs/reports/generated/
+docs/reports/local/
+benchmark_results/
+stress_test_output/
+profile-results/
 
-# User data
-data/projects/
-!data/projects/.gitkeep
+# User settings and personal dictionaries
 config/config.json
 data/glossary.json
 data/naming_settings.json
 data/cleaning_rules.json
+data/recent_files.json
+data/user_settings.json
 
 # Build artifacts
 build/
 dist/
 *.zip
 *.tar.gz
+*.tgz
+*.7z
+*.rar
+*.exe
+*.msi
+*.appx
+*.appinstaller
+*.AppImage
+*.deb
+*.rpm
+*.dmg
 
-# Runtime
+# Embedded runtime downloads and expanded environments
 runtime/python/
 runtime/wheels/
 runtime/*.zip
 runtime/nicotine-gtk4/
+runtime/downloads/
+runtime/models/
+runtime/site-packages/
+runtime/Lib/
+runtime/Scripts/
+runtime/include/
+runtime/share/
+runtime/.venv/
 !runtime/.embedded
 
 # Temporary files

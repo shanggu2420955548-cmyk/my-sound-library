@@ -146,6 +146,7 @@ build.bat
 - 发布说明：`docs/RELEASE_NOTES_v1.2.0.md`
 - 实施计划：`docs/IMPLEMENTATION_PLAN_v1.2.0.md`
 - 压测指南：`docs/STRESS_TEST_GUIDE_v1.2.0.md`
+- 自用开发路线：`docs/PERSONAL_SOUND_LIBRARY_ROADMAP.md`
 
 ---
 

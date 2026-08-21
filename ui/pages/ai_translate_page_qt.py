@@ -542,17 +542,20 @@ class AITranslatePage(QWidget):
             return [row.file_path for row in rows]
 
     def _count_translated_candidates(self, selection: dict) -> int:
-        """统计当前选择范围内可应用的翻译条数（translated_name 非空）。"""
+        """统计当前选择范围内可实际应用的翻译条数。"""
         if not selection or selection.get("mode") == "none":
             return 0
         from transcriptionist_v3.infrastructure.database.connection import session_scope
         from transcriptionist_v3.infrastructure.database.models import AudioFile
         from transcriptionist_v3.application.ai_jobs.selection import apply_selection_filters
+        from sqlalchemy import func
 
         with session_scope() as session:
             query = session.query(AudioFile.id)
             query = apply_selection_filters(query, selection)
             query = query.filter(AudioFile.translated_name.isnot(None))
+            query = query.filter(func.trim(AudioFile.translated_name) != "")
+            query = query.filter(func.lower(func.trim(AudioFile.translated_name)) != func.lower(AudioFile.filename))
             return int(query.count() or 0)
 
     def _load_translated_items_from_db(self, selection: dict, limit: Optional[int] = None) -> list:
@@ -564,11 +567,14 @@ class AITranslatePage(QWidget):
         from transcriptionist_v3.infrastructure.database.models import AudioFile
         from transcriptionist_v3.application.ai_jobs.selection import apply_selection_filters
         from transcriptionist_v3.ui.utils.translation_items import TranslationItem
+        from sqlalchemy import func
 
         with session_scope() as session:
             query = session.query(AudioFile.file_path, AudioFile.filename, AudioFile.translated_name, AudioFile.id)
             query = apply_selection_filters(query, selection)
             query = query.filter(AudioFile.translated_name.isnot(None))
+            query = query.filter(func.trim(AudioFile.translated_name) != "")
+            query = query.filter(func.lower(func.trim(AudioFile.translated_name)) != func.lower(AudioFile.filename))
             query = query.order_by(AudioFile.id.asc())
             if limit and int(limit) > 0:
                 query = query.limit(int(limit))
@@ -835,10 +841,12 @@ class AITranslatePage(QWidget):
         self.progress_widget.hide()
         self.translate_btn.setEnabled(True)
         self.translate_btn.setText("开始翻译")
-        self.apply_all_btn.setEnabled(processed > 0)
 
         # 翻译完成后，从数据库回填预览结果树（数据库单一数据源）。
         selection = self._last_translate_selection or self._get_active_selection()
+        candidates = self._count_translated_candidates(selection)
+        self.apply_all_btn.setEnabled(candidates > 0)
+
         from transcriptionist_v3.core.config import AppConfig
         preview_limit = AppConfig.get("performance.translate_preview_threshold", self.DISPLAY_CAP)
         try:
@@ -879,11 +887,24 @@ class AITranslatePage(QWidget):
         else:
             logger.info("Translate job finished: no translated rows loaded for preview")
 
-        NotificationHelper.success(
-            self,
-            "翻译完成",
-            f"已翻译 {processed} 个文件，失败 {failed} 个。结果已写入数据库。"
-        )
+        if candidates > 0:
+            NotificationHelper.success(
+                self,
+                "翻译完成",
+                f"已处理 {processed} 个文件，失败 {failed} 个，可替换 {candidates} 个。"
+            )
+        elif processed > 0:
+            NotificationHelper.warning(
+                self,
+                "没有可替换的新名称",
+                f"已处理 {processed} 个文件，但 API 返回的名称与原名相同或为空。"
+            )
+        else:
+            NotificationHelper.info(
+                self,
+                "无需翻译",
+                "当前选择范围内没有待翻译文件。"
+            )
         self._refresh_job_list()
 
     def _on_translate_job_error(self, error_msg: str):
@@ -1618,7 +1639,7 @@ class AITranslatePage(QWidget):
 
         candidates = self._count_translated_candidates(selection)
         if candidates <= 0:
-            NotificationHelper.info(self, "无需操作", "当前选择范围内没有可应用的翻译结果")
+            NotificationHelper.info(self, "无需操作", "当前选择范围内没有会改变文件名的翻译结果")
             logger.info("Apply all skipped: no translated candidates in database")
             return
 
@@ -1685,6 +1706,7 @@ class AITranslatePage(QWidget):
         self._cleanup_apply_job_thread()
         processed = int(result.get("processed", 0) or 0)
         failed = int(result.get("failed", 0) or 0)
+        skipped = int(result.get("skipped", 0) or 0)
         folder_processed = int(result.get("folder_processed", 0) or 0)
         folder_failed = int(result.get("folder_failed", 0) or 0)
         failed += folder_failed
@@ -1720,13 +1742,19 @@ class AITranslatePage(QWidget):
             NotificationHelper.warning(
                 self,
                 "应用完成",
-                f"已应用 {processed} 个，失败 {failed} 个"
+                f"已应用 {processed} 个，跳过 {skipped} 个，失败 {failed} 个"
+            )
+        elif processed <= 0:
+            NotificationHelper.info(
+                self,
+                "无需操作",
+                f"没有会改变文件名的翻译结果，跳过 {skipped} 个"
             )
         else:
             NotificationHelper.success(
                 self,
                 "应用完成",
-                f"已应用 {processed} 个翻译结果"
+                f"已应用 {processed} 个翻译结果，跳过 {skipped} 个"
             )
 
     def _on_apply_job_error(self, error_msg: str):

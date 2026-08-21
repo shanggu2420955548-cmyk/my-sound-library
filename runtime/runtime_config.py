@@ -80,21 +80,21 @@ class RuntimeConfig:
     # Environment variables to set
     env_vars: dict[str, str] = field(default_factory=dict)
     
-    # Required dependencies for embedded runtime
-    # GTK4/Libadwaita 通过 PyGObject (gi) 和 PyCairo (cairo) 提供
+    # Required dependencies for the current PySide6 desktop runtime.
     required_dependencies: list[str] = field(default_factory=lambda: [
-        "gi",  # PyGObject for GTK4/Libadwaita
-        "cairo",  # PyCairo for Cairo graphics
+        "PySide6",
+        "qfluentwidgets",
+        "qframelesswindow",
         "sqlalchemy",
         "alembic",
         "aiohttp",
         "mutagen",
-        "soundfile",
         "numpy",
         "watchdog",
         "aiofiles",
         "pydantic",
         "pygame",  # Audio playback
+        "requests",
     ])
     
     @classmethod
@@ -129,9 +129,17 @@ class RuntimeConfig:
             app_root = Path(__file__).parent.parent
             config._internal_dir = None
         
-        # Check for embedded runtime marker
+        # Check for an actual embedded runtime. The repository keeps
+        # runtime/.embedded as a packaging marker, but source development uses
+        # .venv and should not be treated as an embedded install unless the
+        # bundled Python executable is present.
         embedded_marker = app_root / "runtime" / ".embedded"
-        config.is_embedded = embedded_marker.exists() or config.is_frozen
+        embedded_python = app_root / "runtime" / "python" / (
+            "python.exe" if sys.platform == "win32" else "bin/python3"
+        )
+        config.is_embedded = config.is_frozen or (
+            embedded_marker.exists() and embedded_python.exists()
+        )
         
         # Build paths
         config.paths = cls._build_paths(

@@ -58,6 +58,8 @@ from ..core.fonts import apply_app_font, get_font_family
 
 logger = logging.getLogger(__name__)
 
+APP_DISPLAY_NAME = "音效管理工具"
+
 class TranscriptionistWindow(FramelessWindow):
     """音译家主窗口 - 工作站版"""
     
@@ -70,7 +72,7 @@ class TranscriptionistWindow(FramelessWindow):
         self._benchmark_gate_full_text = "性能闸门：暂无报告"
         
         # 1. 窗口基础设置
-        self.setWindowTitle("音译家 AI 音效管理工具 v1.2.0")
+        self.setWindowTitle(APP_DISPLAY_NAME)
         self.resize(1440, 900)
         self.setMinimumSize(1100, 750)
         
@@ -176,7 +178,7 @@ class TranscriptionistWindow(FramelessWindow):
         self._customTitleBar.closeBtn.setHoverBackgroundColor(QColor(232, 17, 35))
         
         # 添加标题文本标签
-        self.titleLabel = BodyLabel("音译家 AI 音效管理工具 v1.2.0", self)
+        self.titleLabel = BodyLabel(APP_DISPLAY_NAME, self)
         self.titleLabel.setObjectName("titleBarAppTitle")
 
         self.realtimeIndexLabel = CaptionLabel("索引: 待机", self)
@@ -1044,7 +1046,7 @@ QMessageBox#appThemedMessageBox QPlainTextEdit {{
         
         self._tray_icon = QSystemTrayIcon(self)
         self._tray_icon.setIcon(QIcon(str(icon_path)))
-        self._tray_icon.setToolTip("音译家 AI 音效管理工具")
+        self._tray_icon.setToolTip(APP_DISPLAY_NAME)
         
         # 右键菜单
         tray_menu = QMenu()
@@ -1133,9 +1135,9 @@ def run_app():
         # 继续启动，让各组件自己处理错误
     
     # --- 应用程序名称和图标配置 ---
-    app.setApplicationName("音译家")
-    app.setApplicationDisplayName("音译家")
-    app.setOrganizationName("音译家团队")
+    app.setApplicationName(APP_DISPLAY_NAME)
+    app.setApplicationDisplayName(APP_DISPLAY_NAME)
+    app.setOrganizationName("个人音效工具")
     app.setOrganizationDomain("transcriptionist.app")
     
     # 尽早设置应用程序图标（任务栏/Alt+Tab 用；Windows 优先 .ico）

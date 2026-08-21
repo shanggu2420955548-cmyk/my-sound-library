@@ -1234,6 +1234,7 @@ class TranslateJobWorker(BaseWorker):
         from transcriptionist_v3.application.naming_manager.templates import TemplateManager, NamingTemplate
         from transcriptionist_v3.ui.utils.hierarchical_translate_worker import sanitize_filename
         from transcriptionist_v3.application.ai_engine.base import AIServiceConfig
+        from sqlalchemy import func, or_
         from transcriptionist_v3.application.ai_engine.providers.openai_compatible import OpenAICompatibleService
 
         translation_model_type = AppConfig.get("ai.translation_model_type", "general")
@@ -1320,7 +1321,14 @@ class TranslateJobWorker(BaseWorker):
 
                 base_query = session.query(AudioFile)
                 base_query = apply_selection_filters(base_query, self.selection)
-                base_query = base_query.filter(AudioFile.translation_status != FILE_STATUS_DONE)
+                base_query = base_query.filter(
+                    or_(
+                        AudioFile.translation_status != FILE_STATUS_DONE,
+                        AudioFile.translated_name.is_(None),
+                        func.trim(AudioFile.translated_name) == "",
+                        func.lower(func.trim(AudioFile.translated_name)) == func.lower(AudioFile.filename),
+                    )
+                )
                 try:
                     total = base_query.count()
                 except Exception:
@@ -1352,7 +1360,14 @@ class TranslateJobWorker(BaseWorker):
                     query = session.query(AudioFile.id, AudioFile.file_path, AudioFile.filename)
                     query = apply_selection_filters(query, self.selection)
                     query = query.filter(AudioFile.id > last_id)
-                    query = query.filter(AudioFile.translation_status != FILE_STATUS_DONE)
+                    query = query.filter(
+                        or_(
+                            AudioFile.translation_status != FILE_STATUS_DONE,
+                            AudioFile.translated_name.is_(None),
+                            func.trim(AudioFile.translated_name) == "",
+                            func.lower(func.trim(AudioFile.translated_name)) == func.lower(AudioFile.filename),
+                        )
+                    )
                     batch = query.order_by(AudioFile.id).limit(self.batch_size).all()
 
                 if not batch:
@@ -1445,6 +1460,14 @@ class TranslateJobWorker(BaseWorker):
                             formatted_stem = translated
 
                         final_name = f"{formatted_stem}{suffix}"
+                        original_name = str(row.filename or meta_rows[idx][3] or Path(row.file_path).name)
+                        if os.path.normcase(final_name.strip()) == os.path.normcase(original_name.strip()):
+                            batch_failed += 1
+                            session.query(AudioFile).filter_by(id=row.id).update(
+                                {"translated_name": None, "translation_status": FILE_STATUS_FAILED},
+                                synchronize_session=False,
+                            )
+                            continue
                         session.query(AudioFile).filter_by(id=row.id).update(
                             {"translated_name": final_name, "translation_status": FILE_STATUS_DONE},
                             synchronize_session=False,
@@ -1725,6 +1748,7 @@ class ApplyTranslationJobWorker(BaseWorker):
         )
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import os
+        from sqlalchemy import func
 
         try:
             with session_scope() as session:
@@ -1736,6 +1760,8 @@ class ApplyTranslationJobWorker(BaseWorker):
                 base_query = session.query(AudioFile)
                 base_query = apply_selection_filters(base_query, self.selection)
                 base_query = base_query.filter(AudioFile.translated_name.isnot(None))
+                base_query = base_query.filter(func.trim(AudioFile.translated_name) != "")
+                base_query = base_query.filter(func.lower(func.trim(AudioFile.translated_name)) != func.lower(AudioFile.filename))
                 try:
                     job_total = base_query.count()
                 except Exception:
@@ -1745,6 +1771,7 @@ class ApplyTranslationJobWorker(BaseWorker):
 
             processed = 0
             failed = 0
+            skipped = 0
             last_id = 0
 
             while True:
@@ -1765,6 +1792,8 @@ class ApplyTranslationJobWorker(BaseWorker):
                     query = apply_selection_filters(query, self.selection)
                     query = query.filter(AudioFile.id > last_id)
                     query = query.filter(AudioFile.translated_name.isnot(None))
+                    query = query.filter(func.trim(AudioFile.translated_name) != "")
+                    query = query.filter(func.lower(func.trim(AudioFile.translated_name)) != func.lower(AudioFile.filename))
                     rows = query.order_by(AudioFile.id).limit(self.batch_size).all()
 
                 if not rows:
@@ -1776,11 +1805,11 @@ class ApplyTranslationJobWorker(BaseWorker):
                     old_path = Path(row.file_path)
                     new_name = (row.translated_name or "").strip()
                     if not new_name:
-                        failed += 1
+                        skipped += 1
                         last_id = row.id
                         continue
-                    if new_name == row.filename:
-                        processed += 1
+                    if os.path.normcase(new_name) == os.path.normcase(str(row.filename or "").strip()):
+                        skipped += 1
                         last_id = row.id
                         continue
                     tasks.append((row.id, old_path, new_name))
@@ -1976,6 +2005,7 @@ class ApplyTranslationJobWorker(BaseWorker):
                     "job_id": self.job_id,
                     "processed": processed,
                     "failed": failed,
+                    "skipped": skipped,
                     "folder_processed": folder_processed,
                     "folder_failed": folder_failed,
                 }
