@@ -1751,19 +1751,6 @@ class AISearchPage(QWidget):
         # except Exception as e:
         #     logger.debug(f"HY-MT1.5 ONNX translate failed, fallback to general: {e}")
 
-        api_key = AppConfig.get("ai.api_key", "").strip()
-        if not api_key:
-            return None
-            
-        model_idx = AppConfig.get("ai.model_index", 0)
-        # Model mapping
-        model_configs = {
-            0: {"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1"},
-            1: {"provider": "openai", "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"},
-            2: {"provider": "doubao", "model": "doubao-pro-4k", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
-        }
-        config = model_configs.get(model_idx, model_configs[0])
-        
         # 中文→英文：沿用上一版仓库的简洁 prompt（lid664951-crypto/transcriptionist-v3）
         if target_lang == "en":
             sys_prompt = "You are a translator. Translate the following Chinese audio description to English. Output ONLY the English translation."
@@ -1795,16 +1782,17 @@ class AISearchPage(QWidget):
 仅输出翻译后的中文标签，不要包含任何标点符号、解释或额外说明。"""
             
         try:
-            service_config = AIServiceConfig(
-                provider_id=config["provider"],
-                api_key=api_key,
-                base_url=config["base_url"],
-                model_name=config["model"],
+            from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
+
+            service_config, err, _ = build_ai_service_config_from_app(
                 system_prompt=sys_prompt,
                 timeout=10,
                 max_tokens=64,
                 temperature=0.3
             )
+            if err or service_config is None:
+                logger.warning(f"Translation config unavailable: {err}")
+                return None
             service = OpenAICompatibleService(service_config)
             
             # Run sync

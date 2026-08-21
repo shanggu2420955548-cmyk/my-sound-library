@@ -198,8 +198,15 @@ class OpenAICompatibleService(TranslationService):
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取HTTP会话"""
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=90) # Increased timeout to 90 seconds
-            self._session = aiohttp.ClientSession(timeout=timeout)
+            timeout_seconds = self._config.timeout or 90
+            try:
+                timeout_seconds = int(timeout_seconds)
+            except (TypeError, ValueError):
+                timeout_seconds = 90
+            timeout = aiohttp.ClientTimeout(total=max(1, timeout_seconds))
+            # Windows 上常见的代理工具会写入 HTTP_PROXY/HTTPS_PROXY。
+            # aiohttp 默认不读取这些环境变量，开启 trust_env 才能和 curl/浏览器保持一致。
+            self._session = aiohttp.ClientSession(timeout=timeout, trust_env=True)
         return self._session
     
     async def cleanup(self) -> None:
@@ -245,6 +252,24 @@ class OpenAICompatibleService(TranslationService):
         """获取System Prompt"""
         return self._config.system_prompt or DEFAULT_TRANSLATION_PROMPT
 
+    def _uses_max_completion_tokens(self) -> bool:
+        """Newer OpenAI reasoning/frontier models reject legacy max_tokens."""
+        from transcriptionist_v3.application.ai_engine.provider_config import uses_max_completion_tokens
+
+        return uses_max_completion_tokens(self._config.provider_id, self._config.model_name)
+
+    def _apply_generation_limits(self, payload: Dict[str, Any]) -> None:
+        """Apply model-compatible token/temperature params in one place."""
+        from transcriptionist_v3.application.ai_engine.provider_config import apply_chat_completion_params
+
+        apply_chat_completion_params(
+            payload,
+            self._config.provider_id,
+            self._config.model_name,
+            max_tokens=self._config.max_tokens,
+            temperature=self._config.temperature,
+        )
+
     async def test_connection(self) -> AIResult[bool]:
         """测试API连接"""
         try:
@@ -253,8 +278,8 @@ class OpenAICompatibleService(TranslationService):
             payload = {
                 "model": self._config.model_name,
                 "messages": [{"role": "user", "content": "Hello"}],
-                "max_tokens": 5,
             }
+            self._apply_generation_limits(payload)
             
             async with session.post(
                 self._get_api_url(),
@@ -292,7 +317,11 @@ class OpenAICompatibleService(TranslationService):
                 return f"模型未找到或服务未启动 (404): {error_msg}\n请检查：\n1. Ollama/LM Studio 是否已启动\n2. 模型名称是否正确\n3. Base URL 是否正确"
             return f"资源未找到 (404): {error_msg}"
         elif status_code == 401:
-            return "API Key 无效（本地模型通常不需要 API Key）"
+            if "local" in self._config.provider_id.lower():
+                return "本地模型鉴权失败（Ollama/LM Studio 通常不需要 API Key，请检查服务端配置）"
+            return "API Key 无效或未授权"
+        elif status_code == 403:
+            return f"权限不足或模型未开通 (403): {error_msg}"
         elif status_code == 429:
             return "触发频率限制 (Rate Limit)"
         elif status_code == 0 or "Connection" in error_msg or "Failed to fetch" in error_msg:
@@ -377,12 +406,11 @@ class OpenAICompatibleService(TranslationService):
                                 {"role": "system", "content": self._get_system_prompt()},
                                 {"role": "user", "content": user_content},
                             ],
-                            "temperature": self._config.temperature,
-                            "max_tokens": self._config.max_tokens,
                         }
+                        self._apply_generation_limits(payload)
                         
-                        # Ollama / LM Studio 均支持 streaming 与 response_format（OpenAI 兼容）
-                        if self._config.provider_id in ("deepseek", "openai", "local"):
+                        # OpenAI-compatible providers use streaming JSON responses for batch parsing.
+                        if self._config.provider_id in ("deepseek", "openai", "doubao", "volcengine", "local", "custom"):
                             payload["response_format"] = {"type": "json_object"}
                             payload["stream"] = True
                             
@@ -649,9 +677,8 @@ class OpenAICompatibleService(TranslationService):
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": text}
                 ],
-                "temperature": self._config.temperature,
-                "max_tokens": self._config.max_tokens,
             }
+            self._apply_generation_limits(payload)
             
             # 移除 JSON 模式强制 (如果之前有设置)
             

@@ -38,27 +38,17 @@ class MusicGenPromptOptimizer:
     def _get_ai_config(self) -> Optional[AIServiceConfig]:
         """获取当前激活的 AI 配置"""
         try:
-            api_key = AppConfig.get("ai.api_key", "").strip()
-            if not api_key:
-                logger.warning("No AI API key found for prompt optimization")
-                return None
-                
-            model_index = AppConfig.get("ai.model_index", 0)
-            model_configs = {
-                0: {"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1"},
-                1: {"provider": "openai", "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"},
-                2: {"provider": "doubao", "model": "doubao-pro-4k", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
-            }
-            config_data = model_configs.get(model_index, model_configs[0])
-            
-            return AIServiceConfig(
-                provider_id=config_data['provider'],
-                model_name=config_data['model'],
-                api_key=api_key,
-                base_url=config_data['base_url'],
+            from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
+
+            config, err, _ = build_ai_service_config_from_app(
                 temperature=0.3,
-                max_tokens=60
+                max_tokens=60,
+                timeout=30,
             )
+            if err:
+                logger.warning(f"No AI config for prompt optimization: {err}")
+                return None
+            return config
         except Exception as e:
             logger.error(f"Failed to get AI config: {e}")
             return None
@@ -72,6 +62,8 @@ class MusicGenPromptOptimizer:
             return user_input
             
         try:
+            from transcriptionist_v3.application.ai_engine.provider_config import apply_chat_completion_params
+
             async with aiohttp.ClientSession() as session:
                 payload = {
                     "model": config.model_name,
@@ -79,8 +71,14 @@ class MusicGenPromptOptimizer:
                         {"role": "system", "content": self.SYSTEM_PROMPT},
                         {"role": "user", "content": user_input}
                     ],
-                    "temperature": 0.3
                 }
+                apply_chat_completion_params(
+                    payload,
+                    config.provider_id,
+                    config.model_name,
+                    max_tokens=config.max_tokens,
+                    temperature=0.3,
+                )
                 headers = {
                     "Authorization": f"Bearer {config.api_key}",
                     "Content-Type": "application/json"

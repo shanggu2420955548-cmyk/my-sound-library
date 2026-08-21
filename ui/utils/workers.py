@@ -2559,31 +2559,6 @@ class TaggingWorker(BaseWorker):
         # except Exception as e:
         #     logger.debug(f"HY-MT1.5 ONNX translate failed, fallback to general: {e}")
         
-        api_key = AppConfig.get("ai.api_key", "").strip()
-        if not api_key:
-            return None
-        
-        model_idx = AppConfig.get("ai.model_index", 0)
-        model_configs = {
-            0: {"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1"},
-            1: {"provider": "openai", "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"},
-            2: {"provider": "doubao", "model": "doubao-pro-4k", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
-            3: {  # 本地模型
-                "provider": "local",
-                "model": AppConfig.get("ai.local_model_name", ""),
-                "base_url": AppConfig.get("ai.local_base_url", "http://localhost:1234/v1"),
-            },
-        }
-        config = model_configs.get(model_idx, model_configs[0])
-        
-        # 本地模型时，API Key 可以为空
-        if model_idx == 3:
-            api_key = ""  # 本地模型通常不需要 API Key
-        else:
-            api_key = AppConfig.get("ai.api_key", "").strip()
-            if not api_key:
-                return None
-        
         if target_lang == "zh":
             sys_prompt = """你是一位专业的影视音效标签翻译专家。
 
@@ -2626,16 +2601,17 @@ Translate the Chinese audio description into a natural English sentence that des
 Only output the English sentence, nothing else."""
         
         try:
-            service_config = AIServiceConfig(
-                provider_id=config["provider"],
-                api_key=api_key,
-                base_url=config["base_url"],
-                model_name=config["model"],
+            from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
+
+            service_config, err, _ = build_ai_service_config_from_app(
                 system_prompt=sys_prompt,
                 timeout=10,
                 max_tokens=64,
                 temperature=0.3
             )
+            if err or service_config is None:
+                logger.warning(f"Translation config unavailable: {err}")
+                return None
             service = OpenAICompatibleService(service_config)
             
             # Run sync

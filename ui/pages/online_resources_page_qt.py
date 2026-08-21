@@ -71,13 +71,7 @@ class SearchWorker(QThread):
 
     def _build_translate_func_sync(self):
         """构建线程内同步翻译函数，避免事件循环嵌套。"""
-        from transcriptionist_v3.core.config import AppConfig as _AppConfig
-
-        model_configs = {
-            0: {"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1"},
-            1: {"provider": "openai", "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"},
-            2: {"provider": "doubao", "model": "doubao-pro-4k", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
-        }
+        from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
 
         def _extract_text(payload: Dict[str, Any]) -> str:
             choices = payload.get("choices") if isinstance(payload, dict) else None
@@ -103,12 +97,6 @@ class SearchWorker(QThread):
             if not text:
                 return text
 
-            api_key = str(_AppConfig.get("ai.api_key", "") or "").strip()
-            if not api_key:
-                return text
-
-            model_idx = int(_AppConfig.get("ai.model_index", 0) or 0)
-            config = model_configs.get(model_idx, model_configs[0])
             has_zh = bool(re.search(r"[\u4e00-\u9fff]", text))
             target_lang = "en" if has_zh else "zh"
 
@@ -125,19 +113,36 @@ class SearchWorker(QThread):
                     "逐行翻译，保持行数和顺序，不要添加解释。"
                 )
 
-            endpoint = f"{str(config['base_url']).rstrip('/')}/chat/completions"
+            config, err, _ = build_ai_service_config_from_app(
+                system_prompt=system_prompt,
+                timeout=25,
+                max_tokens=256,
+                temperature=0.2,
+            )
+            if err or config is None:
+                logger.warning(f"Freesound translate config unavailable: {err}")
+                return text
+
+            from transcriptionist_v3.application.ai_engine.provider_config import apply_chat_completion_params
+
+            endpoint = f"{str(config.base_url).rstrip('/')}/chat/completions"
             payload = {
-                "model": config["model"],
+                "model": config.model_name,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": text},
                 ],
-                "temperature": 0.2,
             }
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
+            apply_chat_completion_params(
+                payload,
+                config.provider_id,
+                config.model_name,
+                max_tokens=config.max_tokens,
+                temperature=0.2,
+            )
+            headers = {"Content-Type": "application/json"}
+            if config.api_key:
+                headers["Authorization"] = f"Bearer {config.api_key}"
 
             try:
                 resp = requests.post(endpoint, headers=headers, json=payload, timeout=(6, 25))
@@ -1854,32 +1859,6 @@ class OnlineResourcesPage(QWidget):
         logger.info(f"Optimizing search query: {query}")
         
         try:
-            from transcriptionist_v3.core.config import AppConfig
-            from transcriptionist_v3.application.ai_engine.providers.openai_compatible import OpenAICompatibleService
-            from transcriptionist_v3.application.ai_engine.base import AIServiceConfig
-            
-            api_key = AppConfig.get("ai.api_key", "").strip()
-            if not api_key:
-                logger.warning("No AI API key, skipping optimization")
-                return query
-            
-            model_index = AppConfig.get("ai.model_index", 0)
-            model_configs = {
-                0: {"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1"},
-                1: {"provider": "openai", "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"},
-                2: {"provider": "doubao", "model": "doubao-pro-4k", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
-            }
-            config_data = model_configs.get(model_index, model_configs[0])
-            
-            config = AIServiceConfig(
-                provider_id=config_data['provider'],
-                model_name=config_data['model'],
-                api_key=api_key,
-                base_url=config_data['base_url'],
-                temperature=0.3,
-                max_tokens=60
-            )
-            
             # Smart Prompt - As advised by AI Expert
             system_prompt = (
                 "You are an expert sound effects librarian for Freesound.org.\n"
@@ -1893,25 +1872,42 @@ class OnlineResourcesPage(QWidget):
                 "Example: 'rain against window' -> 'rain window impact'\n"
                 "Example: '恐怖的鬼叫' -> 'horror ghost scream'"
             )
+            from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
+
+            config, err, _ = build_ai_service_config_from_app(
+                system_prompt=system_prompt,
+                timeout=20,
+                max_tokens=60,
+                temperature=0.3,
+            )
+            if err or config is None:
+                logger.warning(f"AI config unavailable, skipping optimization: {err}")
+                return query
+            from transcriptionist_v3.application.ai_engine.provider_config import apply_chat_completion_params
             
             import asyncio
             import aiohttp
             
             async def get_keywords():
                 try:
-                    async with aiohttp.ClientSession() as session:
+                    async with aiohttp.ClientSession(trust_env=True) as session:
                         payload = {
                             "model": config.model_name,
                             "messages": [
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": query}
                             ],
-                            "temperature": 0.3
                         }
-                        headers = {
-                            "Authorization": f"Bearer {config.api_key}",
-                            "Content-Type": "application/json"
-                        }
+                        apply_chat_completion_params(
+                            payload,
+                            config.provider_id,
+                            config.model_name,
+                            max_tokens=config.max_tokens,
+                            temperature=0.3,
+                        )
+                        headers = {"Content-Type": "application/json"}
+                        if config.api_key:
+                            headers["Authorization"] = f"Bearer {config.api_key}"
                         async with session.post(f"{config.base_url}/chat/completions", json=payload, headers=headers) as resp:
                             if resp.status == 200:
                                 data = await resp.json()

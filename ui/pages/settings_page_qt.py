@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QThread, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QDialog
 import shutil
 import sys
 import os
@@ -18,11 +18,13 @@ from qfluentwidgets import (
     ComboBox, FluentIcon, PushButton, PrimaryPushButton, LineEdit,
     TitleLabel, SubtitleLabel, BodyLabel, CaptionLabel,
     SwitchButton, Slider, SpinBox, setTheme, Theme, InfoBar, InfoBarPosition,
-    ElevatedCardWidget, ScrollArea, isDarkTheme, ProgressBar, MessageDialog
+    ElevatedCardWidget, ScrollArea, isDarkTheme, ProgressBar, MessageDialog,
+    ToolButton
 )
 
 from transcriptionist_v3.ui.utils.workers import ModelDownloadWorker, cleanup_thread, HyMT15DownloadWorker
 from transcriptionist_v3.core.config import AppConfig, get_default_waveform_workers
+from transcriptionist_v3.ui.themes.theme_tokens import get_theme_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,207 @@ def _detect_gpu_vram() -> tuple[int | None, str]:
     
     logger.warning("GPU VRAM detection failed, using default batch_size=4")
     return None, "未知"
+
+
+class CustomAIProviderDialog(QDialog):
+    """Add a user-defined OpenAI-compatible provider."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("customAIProviderDialog")
+        self.setWindowTitle("新增 AI 服务商")
+        self.setMinimumWidth(520)
+        self.setModal(True)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self._drag_pos = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(14)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+        title = SubtitleLabel("新增 AI 服务商")
+        title.setObjectName("dialogTitle")
+        title_row.addWidget(title)
+        title_row.addStretch(1)
+        self.close_btn = ToolButton(FluentIcon.CLOSE, self)
+        self.close_btn.setObjectName("dialogCloseButton")
+        self.close_btn.setFixedSize(32, 32)
+        self.close_btn.clicked.connect(self.reject)
+        title_row.addWidget(self.close_btn)
+        layout.addLayout(title_row)
+
+        hint = CaptionLabel("适用于兼容 OpenAI Chat Completions 的服务商或中转 API")
+        hint.setObjectName("dialogHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self.name_edit = self._add_field(layout, "显示名称", "例如：Moonshot / 通义千问 / OpenRouter")
+        self.base_url_edit = self._add_field(layout, "Base URL", "例如：https://api.example.com/v1")
+        self.model_edit = self._add_field(layout, "模型名称", "例如：gpt-4o-mini / qwen-plus / moonshot-v1-8k")
+        self.api_key_edit = self._add_field(layout, "API Key", "sk-...（如服务无需鉴权可留空）")
+        self.api_key_edit.setEchoMode(LineEdit.EchoMode.Password)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 8, 0, 0)
+        button_row.setSpacing(10)
+        button_row.addStretch(1)
+        self.cancel_btn = PushButton("取消", self)
+        self.cancel_btn.setObjectName("dialogCancelButton")
+        self.cancel_btn.setFixedWidth(88)
+        self.cancel_btn.clicked.connect(self.reject)
+        self.ok_btn = PrimaryPushButton("保存", self)
+        self.ok_btn.setObjectName("dialogSaveButton")
+        self.ok_btn.setFixedWidth(88)
+        self.ok_btn.clicked.connect(self.accept)
+        button_row.addWidget(self.cancel_btn)
+        button_row.addWidget(self.ok_btn)
+        layout.addLayout(button_row)
+        self._apply_theme()
+
+    def _add_field(self, layout: QVBoxLayout, label: str, placeholder: str) -> LineEdit:
+        field_label = BodyLabel(label)
+        field_label.setObjectName("dialogFieldLabel")
+        layout.addWidget(field_label)
+        edit = LineEdit()
+        edit.setObjectName("dialogLineEdit")
+        edit.setPlaceholderText(placeholder)
+        edit.setMinimumHeight(38)
+        layout.addWidget(edit)
+        return edit
+
+    def _apply_theme(self):
+        tokens = get_theme_tokens(isDarkTheme())
+        self.setStyleSheet(
+            f"""
+QDialog#customAIProviderDialog {{
+    background-color: {tokens.window_bg};
+    color: {tokens.text_primary};
+}}
+
+QDialog#customAIProviderDialog QLabel,
+QDialog#customAIProviderDialog BodyLabel,
+QDialog#customAIProviderDialog CaptionLabel,
+QDialog#customAIProviderDialog SubtitleLabel {{
+    background: transparent;
+    color: {tokens.text_primary};
+}}
+
+QDialog#customAIProviderDialog SubtitleLabel#dialogTitle {{
+    color: {tokens.text_primary};
+    font-weight: 700;
+}}
+
+QDialog#customAIProviderDialog CaptionLabel#dialogHint {{
+    color: {tokens.text_secondary};
+}}
+
+QDialog#customAIProviderDialog BodyLabel#dialogFieldLabel {{
+    color: {tokens.text_secondary};
+    font-weight: 600;
+}}
+
+QDialog#customAIProviderDialog LineEdit,
+QDialog#customAIProviderDialog QLineEdit {{
+    background-color: {tokens.surface_2};
+    color: {tokens.text_primary};
+    border: 1px solid {tokens.border};
+    border-radius: 6px;
+    padding: 6px 12px;
+    placeholder-text-color: {tokens.text_muted};
+    selection-background-color: {tokens.accent};
+    selection-color: #FFFFFF;
+}}
+
+QDialog#customAIProviderDialog LineEdit:hover,
+QDialog#customAIProviderDialog QLineEdit:hover {{
+    border-color: {tokens.border_soft};
+}}
+
+QDialog#customAIProviderDialog LineEdit:focus,
+QDialog#customAIProviderDialog QLineEdit:focus {{
+    border: 1px solid {tokens.accent};
+    background-color: {tokens.surface_1};
+}}
+
+QDialog#customAIProviderDialog LineEdit:disabled,
+QDialog#customAIProviderDialog QLineEdit:disabled {{
+    color: {tokens.text_muted};
+    background-color: {tokens.surface_1};
+}}
+
+QDialog#customAIProviderDialog PushButton,
+QDialog#customAIProviderDialog PrimaryPushButton,
+QDialog#customAIProviderDialog ToolButton {{
+    min-height: 34px;
+    border-radius: 6px;
+    color: {tokens.text_primary};
+}}
+
+QDialog#customAIProviderDialog ToolButton#dialogCloseButton {{
+    min-width: 32px;
+    min-height: 32px;
+    max-width: 32px;
+    max-height: 32px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: {tokens.text_secondary};
+}}
+
+QDialog#customAIProviderDialog ToolButton#dialogCloseButton:hover {{
+    background-color: {tokens.surface_2};
+    border-color: {tokens.border};
+    color: {tokens.text_primary};
+}}
+
+QDialog#customAIProviderDialog PushButton#dialogCancelButton {{
+    background-color: {tokens.surface_2};
+    border: 1px solid {tokens.border};
+}}
+
+QDialog#customAIProviderDialog PushButton#dialogCancelButton:hover {{
+    background-color: {tokens.surface_1};
+    border-color: {tokens.border_soft};
+}}
+
+QDialog#customAIProviderDialog PrimaryPushButton#dialogSaveButton {{
+    background-color: {tokens.accent};
+    border: 1px solid {tokens.accent};
+    color: #FFFFFF;
+    font-weight: 600;
+}}
+"""
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= 52:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    def get_data(self) -> dict:
+        return {
+            "name": self.name_edit.text().strip(),
+            "base_url": self.base_url_edit.text().strip(),
+            "model": self.model_edit.text().strip(),
+            "api_key": self.api_key_edit.text().strip(),
+            "requires_key": bool(self.api_key_edit.text().strip()),
+            "provider": "custom",
+        }
 
 
 class SettingsPage(QWidget):
@@ -252,15 +455,19 @@ class SettingsPage(QWidget):
             "用于中英互译、标签润色和语义理解"
         )
         self.model_combo = ComboBox()
-        self.model_combo.addItems([
-            "DeepSeek V3 (推荐)",
-            "ChatGPT (GPT-4o/mini)",
-            "豆包 (高并发)",
-            "本地模型 (Ollama/LM Studio)"
-        ])
-        self.model_combo.setFixedWidth(200)
+        self.model_combo.setFixedWidth(260)
+        self._refresh_ai_provider_combo()
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
         model_row.addWidget(self.model_combo)
+        self.add_ai_provider_btn = PushButton("新增", self)
+        self.add_ai_provider_btn.setFixedWidth(72)
+        self.add_ai_provider_btn.clicked.connect(self._on_add_ai_provider)
+        model_row.addWidget(self.add_ai_provider_btn)
+        self.delete_ai_provider_btn = PushButton("删除", self)
+        self.delete_ai_provider_btn.setFixedWidth(72)
+        self.delete_ai_provider_btn.clicked.connect(self._on_delete_ai_provider)
+        self.delete_ai_provider_btn.setVisible(False)
+        model_row.addWidget(self.delete_ai_provider_btn)
         ai_layout.addLayout(model_row)
         
         # API Key（非本地模型时显示）
@@ -343,20 +550,28 @@ class SettingsPage(QWidget):
         self.model_name_row.setVisible(False)
         ai_layout.addWidget(self.model_name_row)
 
-        # 使用前请确保 + 测试连接（与上方右栏对齐）
+        # API 可用性测试（远程服务商与本地模型通用）
         self.test_connection_row_layout = self._create_setting_row(
-            "使用前请确保",
-            "1) LM Studio/Ollama 已启动  2) 已加载模型  3) LM Studio 开启“允许局域网服务”"
+            "API 可用性",
+            "验证当前服务商、API Key/Base URL 和模型是否可正常请求"
         )
         self.test_connection_row = QWidget()
         self.test_connection_row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.test_connection_row.setStyleSheet("background: transparent;")
         self.test_connection_row.setLayout(self.test_connection_row_layout)
-        self.test_connection_btn = PushButton("测试连接", self)
+        test_connection_controls = QHBoxLayout()
+        test_connection_controls.setContentsMargins(0, 0, 0, 0)
+        test_connection_controls.setSpacing(8)
+        self.test_connection_status = CaptionLabel("未测试")
+        self.test_connection_status.setTextColor(Qt.GlobalColor.gray)
+        self.test_connection_status.setStyleSheet("background: transparent;")
+        test_connection_controls.addWidget(self.test_connection_status)
+        self.test_connection_btn = PushButton("测试 API", self)
         self.test_connection_btn.setFixedWidth(100)
-        self.test_connection_btn.clicked.connect(self._on_test_local_connection)
-        self.test_connection_row_layout.addWidget(self.test_connection_btn)
-        self.test_connection_row.setVisible(False)
+        self.test_connection_btn.clicked.connect(self._on_test_ai_connection)
+        test_connection_controls.addWidget(self.test_connection_btn)
+        self.test_connection_row_layout.addLayout(test_connection_controls)
+        self.test_connection_row.setVisible(True)
         ai_layout.addWidget(self.test_connection_row)
 
         scroll_layout.addWidget(ai_card)
@@ -1009,6 +1224,143 @@ class SettingsPage(QWidget):
 
         return row
 
+    def _refresh_ai_provider_combo(self, selected_index: int | None = None):
+        """刷新 AI 服务商下拉列表（内置 + 自定义）。"""
+        from transcriptionist_v3.application.ai_engine.provider_config import get_ai_provider_options
+
+        providers = get_ai_provider_options()
+        current_index = self.model_combo.currentIndex() if selected_index is None else int(selected_index)
+        if current_index < 0 or current_index >= len(providers):
+            current_index = 0
+
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        self.model_combo.addItems([str(p.get("label") or p.get("name") or p.get("provider") or "AI 服务商") for p in providers])
+        self.model_combo.setCurrentIndex(current_index)
+        self.model_combo.blockSignals(False)
+
+    def _current_ai_provider_option(self) -> dict:
+        from transcriptionist_v3.application.ai_engine.provider_config import get_ai_provider_by_index
+
+        return get_ai_provider_by_index(self.model_combo.currentIndex())
+
+    def _apply_ai_provider_ui_state(self):
+        """根据当前服务商切换 API Key / Base URL / 模型名等控件。"""
+        from transcriptionist_v3.core.config import AppConfig
+
+        provider = self._current_ai_provider_option()
+        is_local = bool(provider.get("local"))
+        is_custom = bool(provider.get("custom"))
+        # 自定义服务商的 Base URL / 模型名已经在新增弹窗内填写；
+        # 主设置页只保留 API Key，方便换 Key 或重新测试。
+        show_editable_endpoint = is_local
+
+        self.key_row.setVisible(not is_local)
+        self.base_url_row.setVisible(show_editable_endpoint)
+        self.model_name_row.setVisible(show_editable_endpoint)
+        self.test_connection_row.setVisible(True)
+        if hasattr(self, "delete_ai_provider_btn"):
+            self.delete_ai_provider_btn.setVisible(is_custom)
+        if hasattr(self, "quick_url_btn"):
+            self.quick_url_btn.setVisible(is_local)
+        if hasattr(self, "base_url_edit"):
+            self.base_url_edit.setFixedWidth(360 if is_local else 460)
+        if hasattr(self, "base_url_hint"):
+            hint = "提示：LM Studio 默认 1234；Ollama 默认 11434" if is_local else "自定义服务商需兼容 OpenAI Chat Completions 接口"
+            self.base_url_hint.setText(hint)
+
+        self.api_key_edit.blockSignals(True)
+        self.base_url_edit.blockSignals(True)
+        self.model_name_edit.blockSignals(True)
+        try:
+            if is_custom:
+                self.api_key_edit.setText(str(provider.get("api_key") or ""))
+                self.base_url_edit.setText(str(provider.get("base_url") or ""))
+                self.model_name_edit.setText(str(provider.get("model") or ""))
+            elif is_local:
+                self.api_key_edit.setText("")
+                self.base_url_edit.setText(str(AppConfig.get("ai.local_base_url", "http://localhost:1234/v1") or "http://localhost:1234/v1"))
+                self.model_name_edit.setText(str(AppConfig.get("ai.local_model_name", "") or ""))
+            else:
+                self.api_key_edit.setText(str(AppConfig.get("ai.api_key", "") or ""))
+                self.base_url_edit.setText(str(provider.get("base_url") or ""))
+                self.model_name_edit.setText(str(provider.get("model") or ""))
+        finally:
+            self.api_key_edit.blockSignals(False)
+            self.base_url_edit.blockSignals(False)
+            self.model_name_edit.blockSignals(False)
+
+        if hasattr(self, "test_connection_status"):
+            self.test_connection_status.setText("未测试")
+            self.test_connection_status.setTextColor(Qt.GlobalColor.gray)
+
+    def _on_add_ai_provider(self):
+        """新增自定义 OpenAI-compatible AI 服务商。"""
+        from transcriptionist_v3.application.ai_engine.provider_config import (
+            builtin_provider_count,
+            get_custom_ai_providers,
+            save_custom_ai_providers,
+        )
+
+        dialog = CustomAIProviderDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        data = dialog.get_data()
+        if not data.get("name") or not data.get("base_url") or not data.get("model"):
+            InfoBar.warning(
+                title="配置不完整",
+                content="请填写显示名称、Base URL 和模型名称",
+                parent=self,
+                position=InfoBarPosition.TOP,
+                duration=4000
+            )
+            return
+
+        providers = get_custom_ai_providers()
+        providers.append(data)
+        save_custom_ai_providers(providers)
+        new_index = builtin_provider_count() + len(providers) - 1
+        self._refresh_ai_provider_combo(new_index)
+        self._apply_ai_provider_ui_state()
+        self._save_ai_settings()
+
+        InfoBar.success(
+            title="已新增服务商",
+            content=f"已添加：{data.get('name')}",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=3000
+        )
+
+    def _on_delete_ai_provider(self):
+        """删除当前选中的自定义服务商。"""
+        from transcriptionist_v3.application.ai_engine.provider_config import delete_custom_ai_provider
+        from transcriptionist_v3.core.config import AppConfig
+
+        provider = self._current_ai_provider_option()
+        if not provider.get("custom"):
+            return
+
+        name = str(provider.get("label") or "自定义服务商")
+        dialog = MessageDialog("确认删除", f"确定要删除「{name}」吗？", self)
+        dialog.setIcon(MessageDialog.Icon.Warning)
+        if not dialog.exec():
+            return
+
+        if delete_custom_ai_provider(str(provider.get("id") or "")):
+            AppConfig.set("ai.model_index", 0)
+            self._refresh_ai_provider_combo(0)
+            self._apply_ai_provider_ui_state()
+            self._save_ai_settings()
+            InfoBar.success(
+                title="已删除",
+                content=f"已删除：{name}",
+                parent=self,
+                position=InfoBarPosition.TOP,
+                duration=3000
+            )
+
     def _on_toggle_audio_provider_section(self):
         """切换 AI 音效服务商配置面板折叠状态。"""
         expanded = bool(self.audio_provider_toggle_btn.isChecked())
@@ -1309,13 +1661,9 @@ class SettingsPage(QWidget):
 
     def _on_model_changed(self, index: int):
         """模型选择改变时的处理"""
-        is_local = (index == 3)  # 本地模型是第4个选项（索引3）
-        
-        # 显示/隐藏相关控件
-        self.key_row.setVisible(not is_local)
-        self.base_url_row.setVisible(is_local)
-        self.model_name_row.setVisible(is_local)
-        self.test_connection_row.setVisible(is_local)
+        provider = self._current_ai_provider_option()
+        is_local = bool(provider.get("local"))
+        self._apply_ai_provider_ui_state()
         
         # 如果是本地模型，显示使用说明
         if is_local:
@@ -1336,6 +1684,10 @@ class SettingsPage(QWidget):
     def _on_base_url_changed(self, text: str):
         """Base URL 改变时的验证和提示"""
         text = text.strip()
+        provider = self._current_ai_provider_option()
+        if not provider.get("local"):
+            self._save_ai_settings()
+            return
         
         # 自动修正常见错误
         if text and not text.startswith("http"):
@@ -1368,9 +1720,10 @@ class SettingsPage(QWidget):
     def _on_model_name_changed(self, text: str):
         """模型名称改变时的验证"""
         text = text.strip()
+        provider = self._current_ai_provider_option()
         
         # 检查是否填写了文件路径（常见错误）
-        if text and (".gguf" in text.lower() or "/" in text or "\\" in text):
+        if provider.get("local") and text and (".gguf" in text.lower() or "/" in text or "\\" in text):
             if ".gguf" in text.lower():
                 InfoBar.warning(
                     title="模型名称格式提醒",
@@ -1419,7 +1772,7 @@ class SettingsPage(QWidget):
                    "1. LM Studio/Ollama 已启动\n"
                    "2. 已在 LM Studio/Ollama 中加载模型\n"
                    "3. LM Studio 需开启「允许局域网服务」\n"
-                   "4. 点击「测试连接」验证配置是否正确",
+                   "4. 点击「测试 API」验证配置是否正确",
             parent=self,
             position=InfoBarPosition.TOP,
             duration=8000
@@ -1428,6 +1781,7 @@ class SettingsPage(QWidget):
     def _save_ai_settings(self):
         """保存 AI 设置到全局配置"""
         from transcriptionist_v3.core.config import AppConfig
+        from transcriptionist_v3.application.ai_engine.provider_config import update_custom_ai_provider
 
         # 初始化/回填控件时不要触发保存（否则会把控件默认值写回磁盘，覆盖用户配置）
         if getattr(self, "_is_loading_settings", False):
@@ -1436,17 +1790,28 @@ class SettingsPage(QWidget):
         # Save Model Index
         model_idx = self.model_combo.currentIndex()
         AppConfig.set("ai.model_index", model_idx)
-        
-        # Save API Key（本地模型时可为空）
+
+        provider = self._current_ai_provider_option()
         api_key = self.api_key_edit.text().strip()
-        AppConfig.set("ai.api_key", api_key)
-        
-        # 保存本地模型配置（如果选择了本地模型）
-        if model_idx == 3:
-            base_url = self.base_url_edit.text().strip()
-            model_name = self.model_name_edit.text().strip()
+        base_url = self.base_url_edit.text().strip()
+        model_name = self.model_name_edit.text().strip()
+
+        if provider.get("custom"):
+            update_custom_ai_provider(
+                str(provider.get("id") or ""),
+                {
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "model": model_name,
+                    "requires_key": bool(api_key),
+                }
+            )
+        elif provider.get("local"):
             AppConfig.set("ai.local_base_url", base_url)
             AppConfig.set("ai.local_model_name", model_name)
+        else:
+            # 内置远程服务商沿用原全局 API Key，避免改变已有配置文件结构。
+            AppConfig.set("ai.api_key", api_key)
         
         # 保存翻译批次大小 & 并发设置
         batch_size = self.translate_batch_spin.value()
@@ -1486,29 +1851,14 @@ class SettingsPage(QWidget):
 
         self._is_loading_settings = True
         try:
-            model_idx = AppConfig.get("ai.model_index", 0)
-            api_key = AppConfig.get("ai.api_key", "")
+            try:
+                model_idx = int(AppConfig.get("ai.model_index", 0) or 0)
+            except (TypeError, ValueError):
+                model_idx = 0
 
             # 回填控件时显式屏蔽信号，避免触发 _save_ai_settings 把默认值写回
-            self.model_combo.blockSignals(True)
-            self.api_key_edit.blockSignals(True)
-            self.model_combo.setCurrentIndex(model_idx)
-            self.api_key_edit.setText(api_key)
-            self.model_combo.blockSignals(False)
-            self.api_key_edit.blockSignals(False)
-
-            # 加载本地模型配置
-            base_url = AppConfig.get("ai.local_base_url", "http://localhost:1234/v1")
-            model_name = AppConfig.get("ai.local_model_name", "")
-            self.base_url_edit.setText(base_url)
-            self.model_name_edit.setText(model_name)
-
-            # 根据模型类型显示/隐藏控件
-            is_local = (model_idx == 3)
-            self.key_row.setVisible(not is_local)
-            self.base_url_row.setVisible(is_local)
-            self.model_name_row.setVisible(is_local)
-            self.test_connection_row.setVisible(is_local)
+            self._refresh_ai_provider_combo(model_idx)
+            self._apply_ai_provider_ui_state()
 
             # 加载翻译批次大小 & 并发设置（带默认值）
             # 先断开信号，避免设置值时触发保存
@@ -1784,8 +2134,8 @@ class SettingsPage(QWidget):
     #     """删除 HY-MT1.5 模型 - 已注释"""
     #     pass
     
-    def _on_test_local_connection(self):
-        """测试本地模型连接"""
+    def _refresh_hy_mt15_model_status_legacy(self):
+        """刷新旧 HY-MT1.5 模型文件状态。"""
         from transcriptionist_v3.runtime.runtime_config import get_data_dir
         from pathlib import Path
         
@@ -2092,145 +2442,157 @@ class SettingsPage(QWidget):
                     duration=5000
                 )
     
-    def _on_test_local_connection(self):
-        """测试本地模型连接"""
-        from transcriptionist_v3.core.config import AppConfig
+    def _get_current_ai_test_config(self):
+        """从当前设置控件构建 API 连通性测试配置。"""
+        from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
+
+        config, err, provider = build_ai_service_config_from_app(
+            system_prompt="You are a concise API connectivity checker.",
+            timeout=15,
+            max_tokens=8,
+            temperature=0.0,
+        )
+        provider_name = str(provider.get("label") or provider.get("name") or provider.get("provider") or "AI 服务")
+        return config, provider_name, err
+
+    def _set_ai_test_state(self, text: str, color, button_text: str = "测试 API", enabled: bool = True):
+        """更新 API 测试行状态。"""
+        if hasattr(self, "test_connection_status"):
+            self.test_connection_status.setText(text)
+            self.test_connection_status.setTextColor(color)
+        if hasattr(self, "test_connection_btn"):
+            self.test_connection_btn.setText(button_text)
+            self.test_connection_btn.setEnabled(enabled)
+
+    def _on_test_ai_connection(self):
+        """测试当前 AI 服务商/API 配置是否可用。"""
         from transcriptionist_v3.application.ai_engine.providers.openai_compatible import OpenAICompatibleService
-        from transcriptionist_v3.application.ai_engine.base import AIServiceConfig
         import asyncio
-        
-        base_url = self.base_url_edit.text().strip()
-        model_name = self.model_name_edit.text().strip()
-        
-        if not base_url:
+
+        self._save_ai_settings()
+        config, provider_name, config_error = self._get_current_ai_test_config()
+        if config_error:
+            self._set_ai_test_state("配置不完整", Qt.GlobalColor.red)
             InfoBar.warning(
                 title="配置不完整",
-                content="请先输入服务器地址 (Base URL)",
+                content=config_error,
                 parent=self,
                 position=InfoBarPosition.TOP,
-                duration=3000
+                duration=4000
             )
             return
-        
-        # 模型名称可以为空（将使用默认模型），但需要检查格式
-        if model_name:
-            # 检查是否填写了文件路径（常见错误）
-            if ".gguf" in model_name.lower() or "/" in model_name or "\\" in model_name:
-                InfoBar.warning(
-                    title="模型名称格式提醒",
-                    content="检测到文件路径格式。请填写在 LM Studio/Ollama 中显示的模型名称（如 llama3.2），而不是文件路径。\n留空将使用默认模型。",
-                    parent=self,
-                    position=InfoBarPosition.TOP,
-                    duration=5000
-                )
-                # 不阻止测试，但给出警告
-        else:
-            # 模型名称为空时，使用 "default" 或空字符串
-            model_name = "default"  # 或者留空，取决于服务端实现
-        
-        # 禁用按钮，显示测试中
-        self.test_connection_btn.setEnabled(False)
-        self.test_connection_btn.setText("测试中...")
-        
-        # 创建测试配置
-        config = AIServiceConfig(
-            provider_id="local",
-            api_key="",  # 本地模型通常不需要 API Key
-            base_url=base_url,
-            model_name=model_name,
-            system_prompt="You are a helpful assistant.",
-            timeout=10,
-            max_tokens=10,
-            temperature=0.3,
-        )
-        
-        # 使用 QThread 运行异步测试，避免阻塞 UI
-        class ConnectionTestThread(QThread):
-            result_received = Signal(object)  # AIResult
-            error_received = Signal(str)
-            
-            def __init__(self, config):
+
+        self._set_ai_test_state("测试中...", Qt.GlobalColor.gray, button_text="测试中...", enabled=False)
+
+        class AIConnectionTestThread(QThread):
+            result_received = Signal(object)
+            error_received = Signal(object)
+
+            def __init__(self, config, provider_name):
                 super().__init__()
                 self.config = config
-            
+                self.provider_name = provider_name
+
             def run(self):
+                loop = None
+                service = None
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    try:
-                        service = OpenAICompatibleService(self.config)
-                        result = loop.run_until_complete(service.test_connection())
-                        loop.run_until_complete(service.cleanup())
-                        self.result_received.emit(result)
-                    finally:
-                        loop.close()
+                    service = OpenAICompatibleService(self.config)
+                    result = loop.run_until_complete(service.test_connection())
+                    self.result_received.emit(
+                        {
+                            "result": result,
+                            "provider_name": self.provider_name,
+                            "model_name": self.config.model_name,
+                            "provider_id": self.config.provider_id,
+                            "base_url": self.config.base_url,
+                        }
+                    )
                 except Exception as e:
-                    self.error_received.emit(str(e))
-        
-        self._test_thread = ConnectionTestThread(config)
+                    self.error_received.emit({"error": str(e), "provider_name": self.provider_name})
+                finally:
+                    if service is not None and loop is not None:
+                        try:
+                            loop.run_until_complete(service.cleanup())
+                        except Exception:
+                            pass
+                    if loop is not None:
+                        try:
+                            loop.close()
+                        except Exception:
+                            pass
+
+        self._test_thread = AIConnectionTestThread(config, provider_name)
         self._test_thread.result_received.connect(self._on_connection_test_result)
         self._test_thread.error_received.connect(self._on_connection_test_error)
         self._test_thread.start()
-    
-    def _on_connection_test_result(self, result):
-        """连接测试结果回调"""
-        self.test_connection_btn.setEnabled(True)
-        self.test_connection_btn.setText("测试连接")
-        
-        if result.status.value == "success":
+
+    def _on_test_local_connection(self):
+        """兼容旧入口：现在统一测试当前 AI 服务商。"""
+        self._on_test_ai_connection()
+
+    def _on_connection_test_result(self, payload):
+        """连接测试结果回调。"""
+        payload = payload or {}
+        result = payload.get("result")
+        provider_name = str(payload.get("provider_name") or "AI 服务")
+        provider_id = str(payload.get("provider_id") or "")
+        model_name = str(payload.get("model_name") or "").strip()
+        base_url = str(payload.get("base_url") or "").strip()
+
+        if result is not None and getattr(result, "success", False):
+            self._set_ai_test_state("可用", Qt.GlobalColor.green)
             InfoBar.success(
-                title="连接成功",
-                content="本地模型服务连接正常，可以开始使用",
+                title="API 可用",
+                content=f"{provider_name} 连接正常，模型：{model_name or '默认模型'}",
                 parent=self,
                 position=InfoBarPosition.TOP,
                 duration=5000
             )
+            return
+
+        error_msg = getattr(result, "error", None) if result is not None else ""
+        error_msg = str(error_msg or "未知错误")
+        self._set_ai_test_state("失败", Qt.GlobalColor.red)
+
+        troubleshooting = []
+        if provider_id == "local":
+            if base_url and not base_url.startswith("http"):
+                troubleshooting.append("• Base URL 应以 http:// 或 https:// 开头")
+            troubleshooting.append("• LM Studio/Ollama 是否已启动，并已加载模型")
+            troubleshooting.append("• Base URL 是否正确，例如 http://localhost:1234/v1 或 http://localhost:11434/v1")
+            troubleshooting.append("• 模型名称应是在服务端显示的模型名，不是 .gguf 文件路径")
         else:
-            error_msg = result.error or "未知错误"
-            
-            # 根据错误类型提供更详细的排查建议
-            base_url = self.base_url_edit.text().strip()
-            model_name = self.model_name_edit.text().strip()
-            
-            troubleshooting = []
-            
-            # 检查 Base URL 格式
-            if not base_url.startswith("http://"):
-                troubleshooting.append("• Base URL 应以 http:// 开头")
-            if "/v8" in base_url or "/v2" in base_url or "/v3" in base_url:
-                troubleshooting.append("• Base URL 路径应为 /v1，不是 /v8 或其他版本")
-            if not base_url.endswith("/v1"):
-                troubleshooting.append("• Base URL 应以 /v1 结尾（例如：http://localhost:1234/v1）")
-            
-            # 检查常见问题
-            troubleshooting.append("• LM Studio/Ollama 是否已启动？")
-            troubleshooting.append("• 是否已在 LM Studio/Ollama 中加载模型？")
-            troubleshooting.append("• LM Studio 是否开启了「允许局域网服务」？")
-            
-            if model_name and (".gguf" in model_name.lower() or "/" in model_name or "\\" in model_name):
-                troubleshooting.append("• 模型名称不应是文件路径，应是在 LM Studio/Ollama 中显示的模型名称")
-            
-            troubleshooting_text = "\n".join(troubleshooting)
-            
-            InfoBar.error(
-                title="连接失败",
-                content=f"无法连接到本地模型服务\n\n错误信息：{error_msg}\n\n排查步骤：\n{troubleshooting_text}\n\n如果问题仍然存在，请检查防火墙设置或尝试重启 LM Studio/Ollama。",
-                parent=self,
-                position=InfoBarPosition.TOP,
-                duration=12000
-            )
-    
-    def _on_connection_test_error(self, error_msg: str):
-        """连接测试错误回调"""
-        self.test_connection_btn.setEnabled(True)
-        self.test_connection_btn.setText("测试连接")
-        
+            troubleshooting.append("• API Key 是否正确，且账号余额/额度可用")
+            troubleshooting.append("• 当前模型是否已在服务商控制台开通")
+            troubleshooting.append("• 如果是国产模型，确认服务商 Base URL 与模型名和当前下拉项匹配")
+
         InfoBar.error(
-            title="测试失败",
-            content=f"连接测试时发生错误：{error_msg}",
+            title="API 不可用",
+            content=f"{provider_name} 测试失败\n\n错误信息：{error_msg}\n\n排查建议：\n" + "\n".join(troubleshooting),
             parent=self,
             position=InfoBarPosition.TOP,
-            duration=5000
+            duration=12000
+        )
+
+    def _on_connection_test_error(self, payload):
+        """连接测试线程错误回调。"""
+        if isinstance(payload, dict):
+            provider_name = str(payload.get("provider_name") or "AI 服务")
+            error_msg = str(payload.get("error") or "未知错误")
+        else:
+            provider_name = "AI 服务"
+            error_msg = str(payload or "未知错误")
+
+        self._set_ai_test_state("失败", Qt.GlobalColor.red)
+        InfoBar.error(
+            title="测试失败",
+            content=f"{provider_name} 连接测试时发生错误：{error_msg}",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=6000
         )
     
     def _save_freesound_settings(self):
@@ -2478,11 +2840,12 @@ class SettingsPage(QWidget):
         #     self.translate_conc_hint.setText(hint_text)
         #     return
 
-        model_idx = self.model_combo.currentIndex()
+        provider_option = self._current_ai_provider_option() if hasattr(self, "model_combo") else {}
+        provider = str(provider_option.get("provider") or "").lower()
         net_idx = 0
 
         # 本地模型特殊处理
-        if model_idx == 3:  # 本地模型
+        if provider == "local":  # 本地模型
             # 本地模型通常可以设置更高的并发，但取决于硬件
             # 网络档位对本地模型意义不大，但可以用于表示"本地性能"
             ranges = [(10, 20), (15, 30), (20, 40)]  # 本地模型可以更高并发
@@ -2500,21 +2863,15 @@ class SettingsPage(QWidget):
             )
             return
 
-        # 模型映射到 provider
-        if model_idx == 0:
-            provider = "deepseek"
-        elif model_idx == 1:
-            provider = "openai"
-        else:
-            provider = "doubao"
-
         # 固定网络档位：normal
         if provider == "deepseek":
             ranges = [(4, 8), (8, 16), (12, 24)]
         elif provider == "openai":
             ranges = [(2, 3), (3, 5), (4, 6)]
-        else:  # doubao / volcengine
+        elif provider in {"doubao", "volcengine"}:
             ranges = [(6, 12), (10, 20), (16, 24)]
+        else:
+            ranges = [(4, 8), (6, 12), (8, 16)]
 
         lo, hi = ranges[max(0, min(2, net_idx))]
         current = self.translate_conc_spin.value()
@@ -2523,7 +2880,9 @@ class SettingsPage(QWidget):
             "deepseek": "DeepSeek",
             "openai": "OpenAI",
             "doubao": "豆包/火山方舟",
-        }.get(provider, provider)
+            "volcengine": "火山方舟",
+            "custom": str(provider_option.get("label") or "自定义服务商"),
+        }.get(provider, str(provider_option.get("label") or provider or "自定义服务商"))
 
         self.translate_conc_hint.setText(
             f"{provider_name} 建议并发区间约为 {lo}–{hi} 路，"

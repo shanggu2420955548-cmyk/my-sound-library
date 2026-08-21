@@ -427,36 +427,21 @@ class AITranslatePage(QWidget):
     def _resolve_translation_model_config(self) -> tuple[str, dict, bool, str | None]:
         """读取当前翻译模型配置；返回 (api_key, model_config, use_onnx, error_message)。"""
         from transcriptionist_v3.core.config import AppConfig
+        from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
 
-        model_index = AppConfig.get("ai.model_index", 0)
-        api_key = AppConfig.get("ai.api_key", "").strip()
         translation_model_type = AppConfig.get("ai.translation_model_type", "general")
         use_onnx = (translation_model_type == "hy_mt15_onnx")
 
-        # 模型配置映射 (包含本地模型)
-        model_configs = {
-            0: {"provider": "deepseek", "model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1"},
-            1: {"provider": "openai", "model": "gpt-4o-mini", "base_url": "https://api.openai.com/v1"},
-            2: {"provider": "doubao", "model": "doubao-pro-4k", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
-            3: {  # 本地模型
-                "provider": "local",
-                "model": AppConfig.get("ai.local_model_name", ""),
-                "base_url": AppConfig.get("ai.local_base_url", "http://localhost:1234/v1"),
-            },
+        config, err, provider = build_ai_service_config_from_app(timeout=30, max_tokens=256, temperature=0.3)
+        model_config = {
+            "provider": getattr(config, "provider_id", "") if config else str(provider.get("provider") or ""),
+            "model": getattr(config, "model_name", "") if config else str(provider.get("model") or ""),
+            "base_url": getattr(config, "base_url", "") if config else str(provider.get("base_url") or ""),
         }
-        model_config = model_configs.get(model_index, model_configs[0])
 
-        # 本地模型时，API Key 可以为空
-        if model_index == 3:
-            api_key = ""
-            if not model_config.get("model") or not model_config.get("base_url"):
-                return "", model_config, use_onnx, "请先在设置中配置本地模型的 Base URL 和模型名称"
-            return api_key, model_config, use_onnx, None
-
-        if model_index != 3 and not api_key and not use_onnx:
-            return "", model_config, use_onnx, "请在“设置 -> AI 配置”中配置 API 密钥"
-
-        return api_key, model_config, use_onnx, None
+        if err and not use_onnx:
+            return "", model_config, use_onnx, err
+        return (getattr(config, "api_key", "") if config else ""), model_config, use_onnx, None
 
     def _build_selection_from_items(self, items: list) -> dict:
         """从内存翻译结果构建 selection（回退路径）。"""

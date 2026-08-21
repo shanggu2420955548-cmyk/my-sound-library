@@ -32,51 +32,17 @@ def get_translation_config_from_app(system_prompt: str = "") -> Tuple[Optional[A
     返回 (AIServiceConfig, None) 或 (None, error_message)。
     """
     try:
-        from transcriptionist_v3.core.config import AppConfig
+        from transcriptionist_v3.application.ai_engine.provider_config import build_ai_service_config_from_app
+        config, err, _ = build_ai_service_config_from_app(
+            system_prompt=system_prompt,
+            timeout=30,
+            max_tokens=256,
+            temperature=0.3,
+        )
+        return config, err
     except Exception as e:
-        logger.debug(f"get_translation_config_from_app: AppConfig failed: {e}")
-        return None, "无法读取配置"
-
-    model_index = int(AppConfig.get("ai.model_index", 0))
-    api_key = (AppConfig.get("ai.api_key", "") or "").strip()
-
-    # 与设置页一致：0=DeepSeek, 1=OpenAI, 2=豆包, 3=本地模型（Ollama / LM Studio）
-    provider_model_map = {
-        0: ("deepseek", "deepseek-chat", "https://api.deepseek.com/v1"),
-        1: ("openai", "gpt-4o-mini", "https://api.openai.com/v1"),
-        2: ("doubao", "doubao-pro-4k", "https://ark.cn-beijing.volces.com/api/v3"),
-        3: ("local", None, None),  # 使用 ai.local_model_name / ai.local_base_url
-    }
-    t = provider_model_map.get(model_index, provider_model_map[0])
-    provider_id, default_model, default_base = t
-
-    if provider_id == "local":
-        base_url = (AppConfig.get("ai.local_base_url", "") or "").strip()
-        model_name = (AppConfig.get("ai.local_model_name", "") or "").strip()
-        if not base_url:
-            base_url = "http://localhost:1234/v1"
-        if not model_name:
-            model_name = "local"
-        api_key = ""
-        if not base_url or not model_name:
-            return None, "请在设置中配置本地模型的 Base URL 和模型名称（Ollama / LM Studio）"
-    else:
-        base_url = default_base or ""
-        model_name = default_model or ""
-        if not api_key:
-            return None, "请在设置 -> AI 配置 中配置 API 密钥"
-
-    config = AIServiceConfig(
-        provider_id=provider_id,
-        api_key=api_key,
-        base_url=base_url,
-        model_name=model_name,
-        system_prompt=system_prompt,
-        timeout=30,
-        max_tokens=256,
-        temperature=0.3,
-    )
-    return config, None
+        logger.debug(f"get_translation_config_from_app failed: {e}", exc_info=True)
+        return None, "无法读取 AI 服务商配置"
 
 
 @dataclass
